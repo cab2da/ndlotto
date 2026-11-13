@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>로또 제외 번호 추천</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+/* 레이아웃: 휴대폰 한 열. 위에서 아래로 촬영 → 제외 번호판(용지와 같은 7열) → 추천 5게임 */
+:root {
+  --bg: #f1f3f6;
+  --surface: #ffffff;
+  --ink: #17202b;
+  --muted: #5d6a79;
+  --line: #d6dce4;
+  --accent: #0b5cad;
+  --accent-ink: #ffffff;
+  --off: #e3e7ed;
+  --off-ink: #9aa4b1;
+  --warn: #b3261e;
+  --font-body: "IBM Plex Sans KR", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "Roboto Mono", monospace;
+  /* 로또 6/45 공 색 */
+  --ball-1: #f5b800; --ball-2: #3f8fe0; --ball-3: #e5534b; --ball-4: #8a939e; --ball-5: #4fae3a;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #10151b; --surface: #19212b; --ink: #e8edf3; --muted: #9aa7b6; --line: #2c3745;
+    --accent: #6cb1f5; --accent-ink: #0b1622; --off: #232d39; --off-ink: #5f6c7b; --warn: #ff8a80;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10151b; --surface: #19212b; --ink: #e8edf3; --muted: #9aa7b6; --line: #2c3745;
+  --accent: #6cb1f5; --accent-ink: #0b1622; --off: #232d39; --off-ink: #5f6c7b; --warn: #ff8a80;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+}
+main { max-width: 480px; margin: 0 auto; padding: 20px 16px 40px; display: flex; flex-direction: column; gap: 16px; }
+h1 { font-size: 22px; font-weight: 700; margin: 0; text-wrap: balance; }
+h2 { font-size: 15px; font-weight: 700; margin: 0; }
+p { margin: 0; }
+.sub { color: var(--muted); font-size: 14px; }
+section { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.count { font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  flex: 1 1 140px; min-height: 48px; padding: 10px 14px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+  font: 500 16px var(--font-body); cursor: pointer; text-align: center;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.btn.small { flex: 0 0 auto; min-height: 36px; padding: 4px 12px; font-size: 14px; }
+.btn:focus-visible, .cell:focus-visible, .filewrap:focus-within { outline: 3px solid var(--accent); outline-offset: 2px; }
+.filewrap { position: relative; overflow: hidden; }
+.filewrap input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+[hidden] { display: none !important; }
+#live { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+#view { width: 100%; height: auto; max-height: 70vh; object-fit: contain; display: block; border-radius: 10px; background: #000; }
+#status { font-size: 14px; color: var(--muted); min-height: 21px; }
+#status.err { color: var(--warn); }
+#scanned { display: flex; flex-direction: column; gap: 4px; font: 500 14px var(--font-num); font-variant-numeric: tabular-nums; }
+#scanned:empty { display: none; }
+#scanned span { color: var(--muted); font-family: var(--font-body); margin-right: 8px; }
+
+.grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cell {
+  aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); padding: 0;
+  font: 600 16px var(--font-num); cursor: pointer;
+}
+.cell[aria-pressed="true"] { background: var(--off); border-color: var(--off); color: var(--off-ink); text-decoration: line-through; }
+
+.games { display: flex; flex-direction: column; gap: 10px; }
+.game { display: flex; align-items: center; gap: 10px; }
+.game .label { width: 18px; font-weight: 700; color: var(--muted); }
+.balls { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; flex: 1; max-width: 330px; }
+.ball {
+  aspect-ratio: 1; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font: 600 16px var(--font-num); color: #fff;
+}
+.ball.c1 { background: var(--ball-1); color: #2b2100; }
+.ball.c2 { background: var(--ball-2); }
+.ball.c3 { background: var(--ball-3); }
+.ball.c4 { background: var(--ball-4); }
+.ball.c5 { background: var(--ball-5); }
+.note { font-size: 13px; color: var(--muted); }
+@media (max-width: 360px) { .cell, .ball { font-size: 14px; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>로또 제외 번호 추천</h1>
+    <p class="sub">용지에 찍힌 번호를 빼고, 남은 번호로 5게임을 뽑습니다.</p>
+  </header>
+
+  <section aria-labelledby="h-scan">
+    <h2 id="h-scan">1. 용지 QR 읽기</h2>
+    <div class="row">
+      <button class="btn primary" id="btn-live" type="button">실시간 스캔</button>
+    </div>
+    <div id="live" hidden>
+      <canvas id="view" aria-label="카메라 화면"></canvas>
+      <button class="btn small" id="btn-stop" type="button">스캔 닫기</button>
+    </div>
+    <div class="row">
+      <label class="btn filewrap">사진 촬영
+        <input id="file-camera" type="file" accept="image/*" capture="environment">
+      </label>
+      <label class="btn filewrap">사진에서 선택
+        <input id="file-gallery" type="file" accept="image/*">
+      </label>
+    </div>
+    <p id="status" role="status">용지 오른쪽 위 QR코드가 크게 나오도록 찍어 주세요.</p>
+    <div id="scanned"></div>
+  </section>
+
+  <section aria-labelledby="h-grid">
+    <div class="head">
+      <h2 id="h-grid">2. 제외할 번호</h2>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+    <div class="row">
+      <button class="btn small" id="btn-clear" type="button">제외 모두 해제</button>
+    </div>
+    <p class="note">번호를 누르면 제외하거나 되돌릴 수 있습니다.</p>
+  </section>
+
+  <section aria-labelledby="h-result">
+    <div class="head">
+      <h2 id="h-result">3. 추천 5게임</h2>
+      <span class="count" id="pool"></span>
+    </div>
+    <div class="games" id="games"></div>
+    <div class="row">
+      <button class="btn primary" id="btn-draw" type="button">다시 뽑기</button>
+      <button class="btn" id="btn-copy" type="button">번호 복사</button>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<script>
+/* ---------- 순수 로직 ---------- */
+//LOGIC-START
+function parseLottoQR(text) {
+  // 예: http://m.dhlottery.co.kr/?v=1145q010203040506m071112233445n000000000000...
+  var m = String(text).match(/[?&]v=([0-9a-z]+)/i);
+  if (!m) return null;
+  var v = m[1];
+  var round = parseInt(v.slice(0, 4), 10);
+  var rest = v.slice(4);
+  var re = /([a-z])(\d{12})/gi, g, games = [];
+  while ((g = re.exec(rest))) {
+    var nums = g[2].match(/\d{2}/g).map(Number);
+    var ok = nums.every(function (n) { return n >= 1 && n <= 45; });
+    var uniq = nums.filter(function (n, i) { return nums.indexOf(n) === i; }).length === 6;
+    if (ok && uniq) games.push({ type: g[1].toLowerCase(), nums: nums });
+  }
+  if (!games.length) return null;
+  return { round: isNaN(round) ? null : round, games: games };
+}
+function randInt(n) {
+  // 0 이상 n 미만, 치우침 없는 난수
+  var buf = new Uint32Array(1), limit = Math.floor(4294967296 / n) * n;
+  do { crypto.getRandomValues(buf); } while (buf[0] >= limit);
+  return buf[0] % n;
+}
+function pickSix(pool) {
+  var a = pool.slice();
+  for (var i = 0; i < 6; i++) {
+    var j = i + randInt(a.length - i);
+    var t = a[i]; a[i] = a[j]; a[j] = t;
+  }
+  return a.slice(0, 6).sort(function (x, y) { return x - y; });
+}
+function drawGames(pool, count) {
+  if (pool.length < 6) return [];
+  var seen = {}, out = [], guard = 0;
+  // 남은 번호가 6개뿐이면 조합이 하나라 1게임만 나온다
+  while (out.length < count && guard++ < 500) {
+    var g = pickSix(pool), key = g.join(",");
+    if (!seen[key]) { seen[key] = true; out.push(g); }
+  }
+  return out;
+}
+//LOGIC-END
+
+/* ---------- 화면 ---------- */
+var excluded = new Set();
+var current = [];
+var TYPE = { q: "자동", m: "수동", s: "반자동" };
+var $ = function (id) { return document.getElementById(id); };
+
+function colorClass(n) { return "c" + Math.min(5, Math.ceil(n / 10)); }
+function pad(n) { return (n < 10 ? "0" : "") + n; }
+
+function buildGrid() {
+  var grid = $("grid");
+  for (var n = 1; n <= 45; n++) {
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "cell"; b.id = "cell-" + n;
+    b.textContent = n; b.dataset.n = n; b.setAttribute("aria-pressed", "false");
+    grid.appendChild(b);
+  }
+  grid.addEventListener("click", function (e) {
+    var b = e.target.closest(".cell"); if (!b) return;
+    var n = Number(b.dataset.n);
+    if (excluded.has(n)) excluded.delete(n); else excluded.add(n);
+    refresh();
+  });
+}
+
+function pool() {
+  var p = [];
+  for (var n = 1; n <= 45; n++) if (!excluded.has(n)) p.push(n);
+  return p;
+}
+
+function refresh() {
+  for (var n = 1; n <= 45; n++) $("cell-" + n).setAttribute("aria-pressed", excluded.has(n) ? "true" : "false");
+  $("count").textContent = excluded.size + "개 제외";
+  draw();
+}
+
+function draw() {
+  var p = pool();
+  $("pool").textContent = "남은 번호 " + p.length + "개";
+  current = drawGames(p, 5);
+  var box = $("games"); box.textContent = "";
+  if (!current.length) {
+    var msg = document.createElement("p");
+    msg.className = "note";
+    msg.textContent = "남은 번호가 6개보다 적습니다. 제외한 번호를 몇 개 되돌려 주세요.";
+    box.appendChild(msg);
+    return;
+  }
+  current.forEach(function (g, i) {
+    var row = document.createElement("div"); row.className = "game";
+    var lab = document.createElement("span"); lab.className = "label"; lab.textContent = "ABCDE"[i];
+    var balls = document.createElement("div"); balls.className = "balls";
+    g.forEach(function (n) {
+      var s = document.createElement("span"); s.className = "ball " + colorClass(n); s.textContent = n;
+      balls.appendChild(s);
+    });
+    row.appendChild(lab); row.appendChild(balls); box.appendChild(row);
+  });
+  if (current.length < 5) {
+    var note = document.createElement("p"); note.className = "note";
+    note.textContent = "남은 번호로 만들 수 있는 조합이 " + current.length + "개뿐입니다.";
+    box.appendChild(note);
+  }
+}
+
+function setStatus(text, isErr) {
+  var s = $("status"); s.textContent = text; s.className = isErr ? "err" : "";
+}
+
+/* ---------- QR 읽기 ---------- */
+function loadImage(file) {
+  return new Promise(function (resolve, reject) {
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function () { resolve(img); };
+    img.onerror = function () { reject(new Error("image")); };
+    img.src = url;
+  });
+}
+function tick() { return new Promise(function (r) { setTimeout(r, 0); }); }
+
+function scanRegion(img, sx, sy, sw, sh, maxSide) {
+  var scale = Math.min(1, maxSide / Math.max(sw, sh));
+  var w = Math.max(1, Math.round(sw * scale)), h = Math.max(1, Math.round(sh * scale));
+  var c = document.createElement("canvas"); c.width = w; c.height = h;
+  var ctx = c.getContext("2d", { willReadFrequently: true });
+  ctx.drawImage(img, sx, sy, sw, sh, 0, 0, w, h);
+  var d = ctx.getImageData(0, 0, w, h);
+  var r = window.jsQR ? window.jsQR(d.data, w, h, { inversionAttempts: "dontInvert" }) : null;
+  return r ? r.data : null;
+}
+
+async function decodeQR(file) {
+  var img = await loadImage(file);
+  var W = img.naturalWidth, H = img.naturalHeight;
+
+  // 1) 브라우저 내장 인식기 (안드로이드 크롬)
+  if ("BarcodeDetector" in window) {
+    try {
+      var det = new BarcodeDetector({ formats: ["qr_code"] });
+      var found = await det.detect(img);
+      for (var i = 0; i < found.length; i++) if (parseLottoQR(found[i].rawValue)) return found[i].rawValue;
+      if (found.length) return found[0].rawValue;
+    } catch (e) { /* 아래 방법으로 계속 */ }
+  }
+  // 2) jsQR: 전체를 여러 크기로, 그다음 겹치는 조각으로
+  var sizes = [1000, 1600, 2400];
+  for (var s = 0; s < sizes.length; s++) {
+    var r = scanRegion(img, 0, 0, W, H, sizes[s]);
+    if (r) return r;
+    await tick();
+  }
+  var fw = W * 0.6, fh = H * 0.6, xs = [W - fw, 0, W * 0.2], ys = [0, H - fh, H * 0.2];
+  for (var yi = 0; yi < ys.length; yi++) for (var xi = 0; xi < xs.length; xi++) {
+    var t = scanRegion(img, xs[xi], ys[yi], fw, fh, 1600);
+    if (t) return t;
+    await tick();
+  }
+  return null;
+}
+
+async function handleFile(input) {
+  var file = input.files && input.files[0];
+  input.value = "";
+  if (!file) return;
+  setStatus("QR코드를 찾는 중입니다…");
+  $("scanned").textContent = "";
+  var text;
+  try { text = await decodeQR(file); }
+  catch (e) { setStatus("사진을 열지 못했습니다. 다른 사진으로 다시 시도해 주세요.", true); return; }
+  if (!text) {
+    setStatus("QR코드를 찾지 못했습니다. QR에 더 가까이, 밝은 곳에서 다시 찍어 주세요. 아래 번호판에서 직접 눌러도 됩니다.", true);
+    return;
+  }
+  var res = parseLottoQR(text);
+  if (!res) {
+    setStatus("QR은 읽었지만 로또 6/45 용지 형식이 아닙니다. 아래 번호판에서 직접 눌러 주세요.", true);
+    return;
+  }
+  applyResult(res);
+}
+
+function applyResult(res) {
+  excluded = new Set();
+  var box = $("scanned");
+  res.games.forEach(function (g, i) {
+    g.nums.forEach(function (n) { excluded.add(n); });
+    var line = document.createElement("div");
+    var lab = document.createElement("span");
+    lab.textContent = "ABCDE"[i] + (TYPE[g.type] ? " " + TYPE[g.type] : "");
+    line.appendChild(lab);
+    line.appendChild(document.createTextNode(g.nums.map(pad).join(" ")));
+    box.appendChild(line);
+  });
+  setStatus((res.round ? res.round + "회 · " : "") + res.games.length + "게임을 읽어 번호 " + excluded.size + "개를 제외했습니다.");
+  refresh();
+}
+
+/* ---------- 실시간 스캔 ---------- */
+var live = { stream: null, video: null, raf: 0, busy: false, last: 0, hit: null, done: false, native: null, msg: "" };
+var scanC = document.createElement("canvas");
+
+function cameraAllowed() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return false;
+  try {
+    var fp = document.featurePolicy || document.permissionsPolicy;
+    if (fp && fp.allowsFeature && !fp.allowsFeature("camera")) return false;
+  } catch (e) {}
+  return true;
+}
+
+async function startLive() {
+  if (live.stream) return;
+  var stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+  } catch (e) {
+    setStatus("카메라를 열 수 없습니다. 브라우저에서 카메라 권한을 허용하거나 사진 촬영을 써 주세요.", true);
+    return;
+  }
+  var v = document.createElement("video");
+  v.playsInline = true; v.muted = true; v.srcObject = stream;
+  try { await v.play(); } catch (e) {}
+  live.stream = stream; live.video = v; live.done = false; live.hit = null; live.busy = false; live.msg = "";
+  if (live.native === null && "BarcodeDetector" in window) {
+    try { live.native = new BarcodeDetector({ formats: ["qr_code"] }); } catch (e) { live.native = false; }
+  }
+  $("live").hidden = false;
+  $("btn-live").hidden = true;
+  setStatus("용지의 QR코드를 화면 안에 비춰 주세요.");
+  live.raf = requestAnimationFrame(frame);
+}
+
+function stopLive() {
+  cancelAnimationFrame(live.raf);
+  if (live.stream) live.stream.getTracks().forEach(function (t) { t.stop(); });
+  live.stream = null; live.video = null;
+  $("live").hidden = true;
+  $("btn-live").hidden = false;
+}
+
+async function detect(w, h) {
+  // 결과: { text, pts: 네 모서리 } 또는 null
+  if (live.native) {
+    try {
+      var found = await live.native.detect(scanC);
+      if (found.length) {
+        var pick = found[0];
+        for (var i = 0; i < found.length; i++) if (parseLottoQR(found[i].rawValue)) { pick = found[i]; break; }
+        return { text: pick.rawValue, pts: pick.cornerPoints };
+      }
+      return null;
+    } catch (e) { live.native = false; }
+  }
+  if (!window.jsQR) return null;
+  var d = scanC.getContext("2d", { willReadFrequently: true }).getImageData(0, 0, w, h);
+  var r = window.jsQR(d.data, w, h, { inversionAttempts: "dontInvert" });
+  if (!r) return null;
+  var L = r.location;
+  return { text: r.data, pts: [L.topLeftCorner, L.topRightCorner, L.bottomRightCorner, L.bottomLeftCorner] };
+}
+
+function drawGuide(ctx, w, h) {
+  // 아직 못 찾았을 때: 가운데 안내 모서리
+  var s = Math.min(w, h) * 0.6, x = (w - s) / 2, y = (h - s) / 2, k = s * 0.14;
+  ctx.lineWidth = Math.max(3, w / 200); ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(x, y + k); ctx.lineTo(x, y); ctx.lineTo(x + k, y);
+  ctx.moveTo(x + s - k, y); ctx.lineTo(x + s, y); ctx.lineTo(x + s, y + k);
+  ctx.moveTo(x + s, y + s - k); ctx.lineTo(x + s, y + s); ctx.lineTo(x + s - k, y + s);
+  ctx.moveTo(x + k, y + s); ctx.lineTo(x, y + s); ctx.lineTo(x, y + s - k);
+  ctx.stroke();
+}
+
+function drawOutline(ctx, w, hit) {
+  // 찾은 QR의 테두리: 로또 용지면 초록, 다른 QR이면 주황
+  var p = hit.pts;
+  ctx.beginPath(); ctx.moveTo(p[0].x, p[0].y);
+  for (var i = 1; i < p.length; i++) ctx.lineTo(p[i].x, p[i].y);
+  ctx.closePath();
+  ctx.fillStyle = hit.ok ? "rgba(61,220,132,0.25)" : "rgba(255,170,0,0.2)";
+  ctx.strokeStyle = hit.ok ? "#3ddc84" : "#ffaa00";
+  ctx.lineWidth = Math.max(5, w / 130); ctx.lineJoin = "round";
+  ctx.fill(); ctx.stroke();
+}
+
+function liveStatus(text) { if (live.msg !== text) { live.msg = text; setStatus(text); } }
+
+function frame(ts) {
+  if (!live.stream) return;
+  var v = live.video, c = $("view");
+  if (v.videoWidth) {
+    var scale = Math.min(1, 960 / Math.max(v.videoWidth, v.videoHeight));
+    var w = Math.round(v.videoWidth * scale), h = Math.round(v.videoHeight * scale);
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+    var ctx = c.getContext("2d");
+    ctx.drawImage(v, 0, 0, w, h);
+
+    if (!live.busy && !live.done && ts - live.last > 110) {
+      live.busy = true; live.last = ts;
+      if (scanC.width !== w || scanC.height !== h) { scanC.width = w; scanC.height = h; }
+      scanC.getContext("2d", { willReadFrequently: true }).drawImage(v, 0, 0, w, h);
+      detect(w, h).then(function (r) {
+        live.busy = false;
+        if (!r || !live.stream) return;
+        var res = parseLottoQR(r.text);
+        live.hit = { pts: r.pts, ok: !!res, t: performance.now() };
+        if (res) {
+          live.done = true;
+          if (navigator.vibrate) { try { navigator.vibrate(80); } catch (e) {} }
+          setTimeout(function () { stopLive(); applyResult(res); }, 700);
+        } else {
+          liveStatus("로또 6/45 용지의 QR코드가 아닙니다.");
+        }
+      }, function () { live.busy = false; });
+    }
+
+    if (live.hit && (live.done || performance.now() - live.hit.t < 450)) drawOutline(ctx, w, live.hit);
+    else { drawGuide(ctx, w, h); if (!live.done) liveStatus("용지의 QR코드를 화면 안에 비춰 주세요."); }
+  }
+  live.raf = requestAnimationFrame(frame);
+}
+
+/* ---------- 시작 ---------- */
+buildGrid();
+refresh();
+if (!cameraAllowed()) $("btn-live").hidden = true;
+$("btn-live").addEventListener("click", startLive);
+$("btn-stop").addEventListener("click", function () { stopLive(); setStatus("스캔을 닫았습니다."); });
+document.addEventListener("visibilitychange", function () { if (document.hidden && live.stream) stopLive(); });
+$("file-camera").addEventListener("change", function () { handleFile(this); });
+$("file-gallery").addEventListener("change", function () { handleFile(this); });
+$("btn-draw").addEventListener("click", draw);
+$("btn-clear").addEventListener("click", function () {
+  excluded = new Set(); $("scanned").textContent = "";
+  setStatus("제외한 번호를 모두 되돌렸습니다."); refresh();
+});
+$("btn-copy").addEventListener("click", function () {
+  var btn = this;
+  var text = current.map(function (g, i) { return "ABCDE"[i] + "  " + g.map(pad).join(" "); }).join("\n");
+  if (!text) return;
+  var done = function (label) { btn.textContent = label; setTimeout(function () { btn.textContent = "번호 복사"; }, 1500); };
+  try { navigator.clipboard.writeText(text).then(function () { done("복사했습니다"); }, function () { done("복사하지 못했습니다"); }); }
+  catch (e) { done("복사하지 못했습니다"); }
+});
+if (!window.jsQR) {
+  // 예비 주소에서 한 번 더 받는다
+  var s = document.createElement("script");
+  s.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js";
+  document.head.appendChild(s);
+}
+</script>
+</body>
+</html>
